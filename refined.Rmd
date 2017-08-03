@@ -1,0 +1,249 @@
+---
+title: "Exploring the BRFSS data"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+```
+
+### Load data
+
+```{r load-data}
+load("brfss2013.RData")
+df <- brfss2013
+```
+
+Assigned dataset to variable named "df" for quick access 
+
+## Part 1: Data
+
+I investigated these questions using the BRFSS dataset, which contains data on the health characteristics of the adult population residing in the US. The data was collected via telephone interviews (both landline and cellphone). The random sampling method used was stratified clusters by region. Thus, while the results of this observational study are generalizable to other adults residing in the US, causality may not be inferred due to the absence of random assignment. 
+
+Since the data was collected through telephone interviews, it is important to keep in mind that surveys are always subject to response bias, a general term for a wide range of cognitive biases: regardless of the participant's intentions, their response may not always be the most accurate and truthful reflection of reality.
+
+## Part 2: Research questions
+
+I am interested in exploring the relationships between race, education, and health. Throughout this preliminary study I'll be using a measure for physical health (in the last 30 days, how many days of bad physical health did the respondent experience?) as my primary dependent variable since, needless to say, physical health is an important indicator for quality of life.
+
+Furthermore, the reader is strongly adviced against drawing any causal explanations from this preliminary study. This exploratory data analysis may very well raise more questions than answers: we are not testing any hypothesis; rather, we are merely exploring interesting relationships in the dataset that may merit follow-up research. 
+
+**Research quesion 1:**
+
+Is there an association between race and physical health?
+If so, what is it?
+
+**Research quesion 2:**
+
+Is there an association between education and physical health?
+If so, what is it?
+
+**Research quesion 3:**
+
+What is the interaction between education, race and physical health?
+Does education act as a mediating or confounding variable for the differing levels of physical health we find across race?
+
+## Part 3: Exploratory data analysis
+
+**Research question 1:**
+
+```{r race boxplot}
+# Create new dataframe, mydf, with new race variable: race 
+# new race variable is categorical
+# and has 4 levels: White, Black, Asian, and Latino
+mydf <- df %>% 
+          filter(X_imprace == 'White, Non-Hispanic' | 
+                   X_imprace == "Asian, Non-Hispanic" |
+                   X_imprace == 'Hispanic' | 
+                   X_imprace == 'Black, Non-Hispanic') %>%
+          mutate(race = factor(X_imprace, 
+                                    labels = c('White','Black','Asian', 'Latino')))
+#===================================================================================
+# Visualize days of bad health vs. race with boxplots
+mydf %>%
+  filter(!is.na(physhlth) & physhlth <= 30) %>%
+  ggplot(aes(race, physhlth, fill = race))+
+  geom_boxplot(alpha = 0.6)+
+  xlab('Race')+
+  ylab('Days of Bad Physical Health\n(out of last 30 days)')
+```
+
+In the figure above we can clearly see that there's a strong association between the social construct of race and the quality of physical health as measured by the number of days interviewees report as not being physically healthy out of the last 30 days. 
+
+The boxplot suggests the Asian population report the least days of bad physical health, followed by the White, Latino and Black population respectively.
+
+```{r race counts}
+# Summary
+mydf %>%
+  filter(!is.na(physhlth) & physhlth <= 30) %>%
+  group_by(race = race) %>%
+  summarise(mean_bad_health = mean(physhlth), race_count = n()) %>%
+  arrange((mean_bad_health))
+```
+
+Numbers corroborate the previous assertion, by showing that on average the Asian population report the lowest number of bad physical health days in the past 30 days. However, it is important to keep in mind that the sample size for the Asian population is the smallest. 
+
+**Research question 2:**
+
+```{r new education variable for completed education, comped}
+# Create new variable: comped (completed education)
+
+# make copy of education variable
+comped <- mydf$educa 
+
+# Condense educa into 4 levels of completed education: 
+# none, elementary, highschool, college
+ha <- list(
+  "college" = c("College 4 years or more (College graduate)"),
+  "highschool" = c("Grade 12 or GED (High school graduate)",
+                   "College 1 year to 3 years (Some college or technical school)"),
+  "elementary"  = c("Grades 9 though 11 (Some high school)",
+                    "Grades 1 through 8 (Elementary)"),
+  "none" = c("Never attended school or only kindergarten"))
+
+# make it happen with a for loop (thank you, Stack Overflow!)
+for (i in 1:length(ha)) levels(comped)[levels(comped)%in%ha[[i]]] <- names(ha)[i]
+
+# reinsert transformed variable into dataset
+mydf$comped <- comped 
+
+#===================================================================================
+# Visualize with boxplots
+mydf %>% 
+  filter(!is.na(physhlth) & physhlth <= 30) %>%
+  filter(!is.na(comped)) %>%
+  ggplot(aes(comped, physhlth, fill = comped))+
+  geom_boxplot(alpha = 0.6)+
+  xlab('Completed Education')+
+  ylab('Days of Physical Health\n(Out of last 30 days)')+
+  ggtitle('Bad Health Days vs. Education Level')
+```
+
+In the figure above we can clearly see that there's a strong association between level of completed education and physical health as measured by the number of days  interviewees report their physical health not being good during the last 30 days. 
+
+```{r education and health summary}
+# Summary 
+mydf %>% 
+  filter(!is.na(physhlth) & physhlth <= 30) %>%
+  filter(!is.na(comped)) %>%
+  group_by(complete_edu = comped) %>%
+  summarise(mean_bad_health_days = mean(physhlth), edu_count = n()) %>%
+  arrange(desc(mean_bad_health_days))
+```
+
+The numbers corroborate a strong association between level of completed education and physical health.
+
+However, the sample size for the "none" level within the categorical variable, comped--for completed education--is too small compared to the counts for the rest of the levels (598 vs. 36802 for elementary; 168287 for college; and 257595 for highschool). Therefore, we exclude this level in further assessments. 
+
+**Research question 3:**
+
+```{r}
+# Visualize education vs. race with barplots of proportion 
+mydf %>% 
+  filter(!is.na(physhlth) & physhlth <= 30) %>%
+  filter(!is.na(comped)) %>%
+  filter(comped != 'none') %>%
+  ggplot(aes(race, fill = comped))+
+  geom_bar(position = 'fill', alpha = 0.8)+
+  xlab('Race')+
+  ylab('Completed Education (In-Group Proportions)')+
+  ggtitle('Education Level vs. Race')
+```
+
+The barplot above shows the Asian population has the highest proportion of college graduates, as well as the lowest proportion of people who didn't graduate highschool. From this, we can infer the Asian population is the most highly educated, which may help explain the Asian population's lower rate for days of bad physical health across race. 
+
+```{r}
+# Visualize bad health vs. education by race with faceted boxplots
+mydf %>% 
+  filter(!is.na(physhlth) & physhlth <= 30) %>%
+  filter(!is.na(comped)) %>%
+  filter(comped != 'none') %>%
+  ggplot(aes(comped, physhlth, fill = comped))+
+  geom_boxplot(alpha = 0.6)+
+  facet_grid(.~race)+
+  xlab('Completed Education Level')+
+  ylab('Days of Bad Physical Health\n(Out of the last 30 days)')+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+We see here that the stratified pattern of education correlating with better health is not true for all races when using boxplots. Specifically, Asians demonstrate a differing pattern where the 75th percentile for the "highschool" level of education report a higher number of bad physical health days.
+
+```{r}
+mydf %>% 
+  filter(race == "Asian") %>%
+  filter(!is.na(physhlth) & physhlth <= 30) %>%
+  filter(!is.na(comped)) %>%
+  filter(comped != 'none') %>%
+  group_by(race, completed_edu = comped) %>%
+  summarise(bad_health_percentage = mean(physhlth)/30*100,
+            bad_health_mean = mean(physhlth), 
+            IQR = IQR(physhlth))
+```
+
+We confirm that the interquartile range is bigger for members of the Asian population that completed highschool than for those who completed college.
+
+However, we also find that when we use the mean as the metric of comparison the stratified pattern of education correlating with better health (less days of bad physical health) is true for all races.
+
+The bad_health_percentage summary column (bad physical health days out of last 30 days)  clearly demonstrates that the higher the level of completed education the less reported days of bad health. 
+
+```{r bad health days vs. education by race}
+edu_race_health <- mydf %>% 
+  filter(!is.na(physhlth) & physhlth <= 30) %>%
+  filter(!is.na(comped)) %>%
+  filter(comped != 'none') %>%
+  group_by(race = race, completed_edu = comped) %>%
+  summarise(bad_health_mean = mean(physhlth)) %>%
+  data.frame()
+#================================================================================
+# Visualize bad health days vs. education by race with faceted barplots
+edu_race_health %>%
+  ggplot(aes(completed_edu, bad_health_mean, fill = completed_edu))+
+  geom_col(alpha = 0.8)+
+  facet_grid(.~race)+
+  xlab('Completed Education Level')+
+  ylab('Average Bad Physical Health Days\n(out of the last 30 days)')+
+  ggtitle('Mean Health vs. Education Level by Race')+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Visually, we can see that the same stratified pattern of education and health is true for all races when we use the mean of bad physical health days as the metric of comparison rather than the median. 
+
+```{r bad health vs. race by education}
+# Visualize bad health days vs. race by education with faceted barplots
+edu_race_health %>%
+  ggplot(aes(race, bad_health_mean, fill = race))+
+  geom_col(alpha = 0.8)+
+  facet_grid(.~completed_edu)+
+  xlab('Race')+
+  ylab('Average Bad Physical Health Days\n(out of the last 30 days)')+
+  ggtitle('Mean Health vs Race by Education')
+```
+
+Visually, we can see that the Asian population still demonstrates lower average of bad physical days when compared with populations from other races. 
+
+However, since the scope of this study is purely preliminary and we haven't carried out any inferential statistic, we cannot confirm any generilizable association at the moment. Further study would look to test these hypothesis for confirmed associations between race, education and physical health. 
+
+## Appendix: List of fields in project data
+
+
+|`physhlth`       |Days of Bad Physical Health in the last 30 Days                                                               |dbl   |
+
+|`X_imprace`       |Imputed Race/Ethnicity Value                                                                  |Factor   |
+
+|`race`       |Imputed Race/Ethnicity Value (X_imprace reduced to four variables)                                              |Factor   |
+
+|`educa`       |Education Level                                                                   |Factor   |
+
+|`comped `       |Completed Education Level (educa reduced to four variables)                                                                  |Factor   |
+
+
+
